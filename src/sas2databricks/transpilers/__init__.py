@@ -5,7 +5,7 @@ from __future__ import annotations
 from ..ir import Engine, Step
 from ..ir import RawStep as IRRawStep
 from ..parser import RawStep
-from . import data_step, formats, macro, proc_means, proc_report, proc_sql
+from . import data_step, formats, macro, proc_means, proc_report, proc_sql, proc_stats
 from .base import prov_for
 
 
@@ -22,6 +22,8 @@ def dispatch(raw: RawStep) -> list[Step]:
         return list(formats.transpile(raw))
     if kind == "proc_report":
         return [proc_report.transpile(raw)]
+    if kind in ("proc_stat", "proc_model"):
+        return [proc_stats.transpile(raw)]
     if kind == "macro":
         return [macro.transpile(raw)]
 

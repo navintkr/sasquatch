@@ -135,6 +135,7 @@ class Orchestrator:
         step.prov.notes += result.notes
         # stash the generated/marker code on the step for emitters to surface
         step.llm_code = result.code
+        step.llm_fulfilled = result.fulfilled
         if result.fulfilled:
             step.prov.confidence = max(step.prov.confidence, 0.85)
         return step

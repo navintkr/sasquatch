@@ -21,15 +21,17 @@ def test_data_step_and_means(tmp_path):
     assert any(r.kind == "agg" for r in result.reports)
 
 
-def test_format_and_macro_flagged_for_review():
+def test_format_and_macro_converted():
     sas = (EXAMPLES / "sample3_macro_report.sas").read_text()
     result = migrate(sas, target="pyspark", provider=CopilotProvider())
     kinds = {r.kind for r in result.reports}
     assert "format" in kinds
     assert "macro" in kinds
-    # macro + report are low-confidence → escalated to the LLM
-    assert result.review_count >= 1
-    assert len(result.llm_requests) >= 1
+    # the macro body now converts deterministically to a parameterized function
+    macro = next(s for s in result.program.steps if s.kind == "macro")
+    assert macro.generated.startswith("def ")
+    assert "spark.sql" in macro.generated
+    assert not macro.prov.needs_review()
 
 
 def test_auto_router_picks_opus_for_macros():
@@ -40,7 +42,7 @@ def test_auto_router_picks_opus_for_macros():
 
 def test_all_targets_emit_something():
     sas = (EXAMPLES / "sample1_proc_sql.sas").read_text()
-    for target in ("pyspark", "sparksql", "dlt", "workflow"):
+    for target in ("pyspark", "sparksql", "dlt", "workflow", "validate"):
         result = migrate(sas, target=target)
         assert result.code.strip()
         assert result.filename

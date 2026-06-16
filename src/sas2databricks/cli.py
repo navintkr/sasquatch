@@ -10,7 +10,7 @@ from rich.console import Console
 from rich.table import Table
 
 from . import __version__
-from .llm import CopilotProvider, Model, NullProvider
+from .llm import CopilotProvider, Model, NullProvider, provider_from_env
 from .pipeline import MigrationResult, migrate_file
 
 
@@ -27,7 +27,16 @@ _force_utf8()
 console = Console()
 
 _MODEL_CHOICE = click.Choice([m.value for m in Model], case_sensitive=False)
-_TARGET_CHOICE = click.Choice(["pyspark", "sparksql", "dlt", "workflow"], case_sensitive=False)
+_TARGET_CHOICE = click.Choice(
+    ["pyspark", "sparksql", "dlt", "workflow", "validate"], case_sensitive=False
+)
+
+
+def _resolve_provider(copilot: bool):
+    """Pick a provider: --copilot wins, else an env-configured API provider, else stub."""
+    if copilot:
+        return CopilotProvider()
+    return provider_from_env() or NullProvider()
 
 
 @click.group(help="sas2databricks — migrate SAS analytics, transforms & reports to Databricks.")
@@ -46,12 +55,17 @@ def main() -> None:  # pragma: no cover - entry point
 @click.option("--copilot", is_flag=True,
               help="Delegate low-confidence steps to the host Copilot model.")
 @click.option("--threshold", type=float, default=0.8, show_default=True)
+@click.option("--catalog", default=None, help="Unity Catalog catalog (dlt target).")
+@click.option("--schema", default=None, help="Unity Catalog schema (dlt target).")
+@click.option("--ref-base", default=None, help="Reference dataset folder (validate target).")
 def convert(
-    source: Path, target: str, model: str, out: Path | None, copilot: bool, threshold: float
+    source: Path, target: str, model: str, out: Path | None, copilot: bool, threshold: float,
+    catalog: str | None, schema: str | None, ref_base: str | None,
 ) -> None:
-    provider = CopilotProvider() if copilot else NullProvider()
+    provider = _resolve_provider(copilot)
+    options = _emit_options(catalog, schema, ref_base)
     result = migrate_file(
-        source, target=target, model=model, provider=provider, threshold=threshold
+        source, target=target, model=model, provider=provider, threshold=threshold, **options
     )
     if out:
         out.write_text(result.code, encoding="utf-8")
@@ -70,8 +84,13 @@ def convert(
 @click.option("--copilot", is_flag=True,
               help="Delegate low-confidence steps to the host Copilot model.")
 @click.option("--threshold", type=float, default=0.8, show_default=True)
+@click.option("--catalog", default=None, help="Unity Catalog catalog (dlt target).")
+@click.option("--schema", default=None, help="Unity Catalog schema (dlt target).")
+@click.option("--ref-base", default=None, help="Reference dataset folder (validate target).")
+@click.option("--html", is_flag=True, help="Also write an HTML report per file.")
 def migrate_cmd(
-    source: Path, target: str, model: str, out: Path, copilot: bool, threshold: float
+    source: Path, target: str, model: str, out: Path, copilot: bool, threshold: float,
+    catalog: str | None, schema: str | None, ref_base: str | None, html: bool,
 ) -> None:
     files = [source] if source.is_file() else sorted(source.rglob("*.sas"))
     if not files:
@@ -79,20 +98,22 @@ def migrate_cmd(
         raise SystemExit(1)
 
     out.mkdir(parents=True, exist_ok=True)
-    provider_factory = (lambda: CopilotProvider()) if copilot else (lambda: NullProvider())
+    options = _emit_options(catalog, schema, ref_base)
     results: list[MigrationResult] = []
     for f in files:
-        result = migrate_file(f, target=target, model=model, provider=provider_factory(),
-                              threshold=threshold)
+        result = migrate_file(f, target=target, model=model, provider=_resolve_provider(copilot),
+                              threshold=threshold, **options)
         dest = out / f"{f.stem}_{result.filename}"
         dest.write_text(result.code, encoding="utf-8")
         (out / f"{f.stem}_report.md").write_text(result.report_markdown(), encoding="utf-8")
+        if html:
+            (out / f"{f.stem}_report.html").write_text(result.report_html(), encoding="utf-8")
         results.append(result)
-        console.print(f"[green]✓[/] {f.name} → {dest.name}  "
+        console.print(f"[green]OK[/] {f.name} -> {dest.name}  "
                       f"({result.review_count} step(s) need review)")
 
     total_review = sum(r.review_count for r in results)
-    console.print(f"\n[bold]Migrated {len(results)} file(s)[/] → {out}/  "
+    console.print(f"\n[bold]Migrated {len(results)} file(s)[/] -> {out}/  "
                   f"| {total_review} step(s) flagged for review")
 
 
@@ -125,9 +146,15 @@ main.add_command(parse_cmd, name="parse")
 @click.argument("source", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("--target", "-t", type=_TARGET_CHOICE, default="pyspark", show_default=True)
 @click.option("--model", "-m", type=_MODEL_CHOICE, default="opus-4.8", show_default=True)
-def report(source: Path, target: str, model: str) -> None:
+@click.option("--html", "html_out", type=click.Path(path_type=Path), default=None,
+              help="Write an HTML report to this path instead of markdown to stdout.")
+def report(source: Path, target: str, model: str, html_out: Path | None) -> None:
     result = migrate_file(source, target=target, model=model)
-    click.echo(result.report_markdown())
+    if html_out:
+        html_out.write_text(result.report_html(), encoding="utf-8")
+        console.print(f"[green]Wrote[/] {html_out}")
+    else:
+        click.echo(result.report_markdown())
 
 
 @main.command(help="Run the MCP server (stdio) so GitHub Copilot can call the tools.")
@@ -148,6 +175,19 @@ def _print_summary(result: MigrationResult) -> None:
         f"steps={len(result.reports)} review={review} "
         f"llm_escalations={len(result.llm_requests)}[/]"
     )
+
+
+def _emit_options(
+    catalog: str | None, schema: str | None, ref_base: str | None
+) -> dict[str, str]:
+    options: dict[str, str] = {}
+    if catalog:
+        options["catalog"] = catalog
+    if schema:
+        options["schema"] = schema
+    if ref_base:
+        options["ref_base"] = ref_base
+    return options
 
 
 if __name__ == "__main__":  # pragma: no cover

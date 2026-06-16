@@ -40,7 +40,9 @@ are unverifiable. **sas2databricks combines both**:
 | `PROC MEANS` / `SUMMARY` / `FREQ` / `TABULATE` (measures & aggregations) | PySpark / Spark SQL | Deterministic |
 | `PROC FORMAT` (formats/informats) | PySpark UDF / mapping tables | Deterministic |
 | `PROC REPORT` / `PRINT` | Databricks notebook viz / SQL | Deterministic + LLM |
-| Statistical PROCs (`REG`, `LOGISTIC`, `GLM`, …) | MLlib / pandas API on Spark | LLM (rule hints) |
+| Statistical PROCs (`REG`, `LOGISTIC`, `GLM`, `GENMOD`) | Spark MLlib scaffold | Deterministic (review) |
+| Descriptive PROCs (`CORR`, `UNIVARIATE`) | Spark stats helpers | Deterministic |
+| Data-parity validation | `validate` notebook (row/schema/checksum diff) | Deterministic |
 
 ## Three ways to use it
 
@@ -54,7 +56,7 @@ flowchart LR
         L -->|model: opus/codex/auto| T
         T --> E[Emitters]
     end
-    E --> OUT["PySpark / Spark SQL / DLT / Workflows"]
+    E --> OUT["PySpark / Spark SQL / DLT / Workflows / Validate"]
 
     CLI["CLI: s2db migrate"] --> CORE
     MCP["MCP server (tools for Copilot)"] --> CORE
@@ -100,11 +102,12 @@ and MCP server it is the `--model` flag / `model` argument. See [docs/model-sele
 
 ```
 src/sas2databricks/
-├── parser/        # SAS → tokens → parse tree (lark grammar)
+├── parser/        # SAS → preprocess → macro expansion → step split
 ├── ir/            # Intermediate representation (engine-agnostic)
 ├── transpilers/   # IR builders per SAS construct (deterministic)
-├── emitters/      # IR → PySpark / Spark SQL / DLT / Workflows
-├── llm/           # Model selection + LLM orchestration + prompts
+├── emitters/      # IR → PySpark / Spark SQL / DLT / Workflows / Validate
+├── llm/           # Model selection + orchestrator + pluggable providers
+├── macros.py      # %MACRO body → parameterized Python function
 ├── mcp/           # MCP server exposing the core as tools
 ├── pipeline.py    # End-to-end orchestration
 └── cli.py         # `s2db` command-line interface
@@ -115,9 +118,13 @@ for what's planned.
 
 ## Status
 
-Early, but real. PROC SQL, macro variables, PROC MEANS, and PROC FORMAT have working
-deterministic transpilers with tests; DATA step and reports are partially deterministic and
-LLM-assisted. Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
+**v0.2.0 — real and growing.** Deterministic transpilers (with tests) cover PROC SQL,
+macro variables **and `%MACRO` definitions/invocations**, PROC MEANS/FORMAT/REPORT, the
+DATA step (BY-group, `RETAIN`, `LAG`/`DIF`, `FIRST.`/`LAST.`, `MERGE`), descriptive stats
+(`CORR`/`UNIVARIATE`), and MLlib scaffolds for `REG`/`LOGISTIC`/`GLM`. Targets include
+PySpark, Spark SQL, DLT (with expectations), Workflows, and a data-parity `validate`
+notebook. Real LLM providers (Anthropic, Azure OpenAI) plug in behind `LLMProvider`, and
+results render to an HTML report. Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

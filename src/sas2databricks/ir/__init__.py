@@ -74,6 +74,9 @@ class DataStep(Step):
     drop: list[str] = field(default_factory=list)
     rename: dict[str, str] = field(default_factory=dict)
     by: list[str] = field(default_factory=list)
+    merge: list[str] = field(default_factory=list)  # MERGE a b; -> join inputs
+    retain: list[str] = field(default_factory=list)  # RETAIN cols (carried across rows)
+    needs_row_order: bool = False  # uses LAG/DIF/FIRST./LAST./RETAIN -> needs an order col
     kind: str = "data"
 
 
@@ -123,7 +126,31 @@ class MacroDef(Step):
 
     params: list[str] = field(default_factory=list)
     body: str = ""
+    generated: str = ""  # deterministically converted body (target code), when available
     kind: str = "macro"
+
+
+@dataclass
+class ModelStep(Step):
+    """PROC REG / LOGISTIC / GLM -> Spark MLlib estimator scaffold."""
+
+    source: str = ""
+    estimator: str = ""  # LinearRegression | LogisticRegression | GeneralizedLinearRegression
+    family: str = ""  # for GLM (gaussian/binomial/poisson/...)
+    label: str = ""  # response / dependent variable
+    features: list[str] = field(default_factory=list)  # predictors
+    kind: str = "model"
+
+
+@dataclass
+class StatStep(Step):
+    """PROC CORR / UNIVARIATE -> descriptive-statistics helper."""
+
+    source: str = ""
+    op: str = ""  # corr | univariate
+    columns: list[str] = field(default_factory=list)
+    with_columns: list[str] = field(default_factory=list)  # PROC CORR `with` vars
+    kind: str = "stat"
 
 
 @dataclass

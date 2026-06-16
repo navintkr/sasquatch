@@ -7,10 +7,12 @@ from ..ir import (
     DataStep,
     FormatStep,
     MacroDef,
+    ModelStep,
     Program,
     RawStep,
     ReportStep,
     SqlStep,
+    StatStep,
     Step,
 )
 from .base import header_comment, safe_name, step_banner
@@ -51,13 +53,20 @@ def _emit_step(step: Step) -> str:
     if isinstance(step, SqlStep):
         return _sql(step)
     if isinstance(step, DataStep):
-        return code if code and step.prov.engine.value == "llm" else _data(step)
+        # keep the deterministic translation unless a provider actually fulfilled it
+        if code and getattr(step, "llm_fulfilled", False):
+            return code
+        return _data(step)
     if isinstance(step, AggStep):
         return _agg(step)
     if isinstance(step, FormatStep):
         return _format(step)
     if isinstance(step, ReportStep):
         return _report(step)
+    if isinstance(step, StatStep):
+        return _stat(step)
+    if isinstance(step, ModelStep):
+        return _model(step)
     if isinstance(step, MacroDef):
         return code or _macro(step)
     return f"# unsupported step kind: {step.kind}"
@@ -71,10 +80,23 @@ def _sql(step: SqlStep) -> str:
 
 def _data(step: DataStep) -> str:
     var = safe_name(step.name)
-    src = safe_name(step.source) if step.source else "spark.range(0)"
-    lines = [f"{var} = {src}"]
+    lines: list[str]
+    if step.merge:
+        parts = [safe_name(m) for m in step.merge]
+        on = "[" + ", ".join(f'"{b}"' for b in step.by) + "]" if step.by else "None"
+        lines = [f"{var} = {parts[0]}"]
+        for other in parts[1:]:
+            how = '"full"' if step.by else '"cross"'
+            lines.append(f"{var} = {var}.join({other}, on={on}, how={how})")
+    else:
+        src = safe_name(step.source) if step.source else "spark.range(0)"
+        lines = [f"{var} = {src}"]
     if step.where:
         lines.append(f'{var} = {var}.where("{step.where}")')
+    if step.needs_row_order:
+        lines.append(
+            f'{var} = {var}.withColumn("_row_id", F.monotonically_increasing_id())'
+        )
     for a in step.assignments:
         if a.condition:
             existing = (
@@ -89,6 +111,8 @@ def _data(step: DataStep) -> str:
             lines.append(f'{var} = {var}.withColumn("{a.target}", F.expr("{a.expr}"))')
     for old, new in step.rename.items():
         lines.append(f'{var} = {var}.withColumnRenamed("{old}", "{new}")')
+    if step.needs_row_order and not step.keep:
+        lines.append(f'{var} = {var}.drop("_row_id")')
     if step.keep:
         cols = ", ".join(f'"{c}"' for c in step.keep)
         lines.append(f"{var} = {var}.select({cols})")
@@ -149,6 +173,8 @@ def _report(step: ReportStep) -> str:
 
 
 def _macro(step: MacroDef) -> str:
+    if step.generated:
+        return step.generated
     params = ", ".join(step.params)
     body = "\n".join("    # " + line for line in step.body.splitlines())
     return (
@@ -161,3 +187,56 @@ def _macro(step: MacroDef) -> str:
 def _raw(step: RawStep) -> str:
     body = "\n".join("# " + line for line in step.raw.splitlines())
     return f"# MANUAL REVIEW: unsupported SAS construct\n{body}"
+
+
+def _stat(step: StatStep) -> str:
+    var = safe_name(step.name)
+    src = safe_name(step.source) if step.source else "df"
+    if step.op == "corr":
+        cols = step.columns or []
+        if step.with_columns:
+            pairs = [(a, b) for a in cols for b in step.with_columns]
+        else:
+            pairs = [(cols[i], cols[j]) for i in range(len(cols)) for j in range(i + 1, len(cols))]
+        rows = ", ".join(
+            f'({a!r}, {b!r}, {src}.stat.corr({a!r}, {b!r}))' for a, b in pairs
+        ) or "# no VAR columns parsed -> add column pairs"
+        return (
+            f"# PROC CORR -> pairwise Pearson correlations\n"
+            f"{var} = spark.createDataFrame([{rows}], ['x', 'y', 'corr'])\n"
+            f"display({var})"
+        )
+    cols = ", ".join(f'"{c}"' for c in step.columns) if step.columns else ""
+    target = f"{src}.select({cols})" if cols else src
+    return (
+        f"# PROC UNIVARIATE -> descriptive statistics\n"
+        f"{var} = {target}.summary()  # count/mean/stddev/min/quartiles/max\n"
+        f"display({var})"
+    )
+
+
+def _model(step: ModelStep) -> str:
+    var = safe_name(step.name)
+    src = safe_name(step.source) if step.source else "df"
+    features = step.features or ["feature1", "feature2"]
+    feat_list = ", ".join(f'"{f}"' for f in features)
+    label = step.label or "label"
+    if step.estimator == "LogisticRegression":
+        import_line = "from pyspark.ml.classification import LogisticRegression"
+        family = ""
+    elif step.estimator == "GeneralizedLinearRegression":
+        import_line = "from pyspark.ml.regression import GeneralizedLinearRegression"
+        family = f', family="{step.family or "gaussian"}"'
+    else:
+        import_line = "from pyspark.ml.regression import LinearRegression"
+        family = ""
+    return (
+        "# MANUAL REVIEW: MLlib model scaffold -- verify features, encoding, regularization\n"
+        "from pyspark.ml.feature import VectorAssembler\n"
+        f"{import_line}\n"
+        f"_assembler = VectorAssembler(inputCols=[{feat_list}], outputCol='features')\n"
+        f"_train = _assembler.transform({src})\n"
+        f'{var} = {step.estimator}(featuresCol="features", labelCol="{label}"{family})'
+        ".fit(_train)\n"
+        f"print({var}.coefficients, {var}.intercept)"
+    )

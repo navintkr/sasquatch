@@ -21,14 +21,14 @@ representation (IR), and how the three front-ends (CLI, MCP, Copilot agent) shar
 
 ```mermaid
 flowchart TD
-    A[".sas source"] --> B[Lexer / Preprocessor<br/>strip comments, expand %include]
-    B --> C[Parser<br/>lark grammar → parse tree]
+    A[".sas source"] --> B[Lexer / Preprocessor<br/>strip comments, expand %let, inline %macro calls]
+    B --> C[Step splitter<br/>regex skeletons, %macro atomic]
     C --> D[IR Builder<br/>transpilers per construct]
-    D --> E{Confidence<br/>≥ threshold?}
+    D --> E{Confidence<br/>>= threshold?}
     E -- yes --> G[IR program]
     E -- no --> F[LLM Orchestrator<br/>model = opus-4.8 / codex / auto]
     F --> G
-    G --> H[Emitter<br/>pyspark / sparksql / dlt / workflow]
+    G --> H[Emitter<br/>pyspark / sparksql / dlt / workflow / validate]
     H --> I[Output + provenance + migration report]
 ```
 
@@ -36,32 +36,36 @@ flowchart TD
 
 ### 1. Parser (`parser/`)
 - `lexer.py` — preprocessing: strips `/* */` and `*;` comments, normalizes whitespace,
-  resolves `%include`, and splits the program into **steps** (`DATA …; run;`,
-  `PROC …; run/quit;`, macro definitions).
-- `grammar.lark` — a pragmatic SAS grammar. SAS is not fully context-free, so the
-  grammar parses statement skeletons; deep expression parsing is delegated to
-  construct-specific transpilers (e.g. sqlglot for PROC SQL).
-- `sas_parser.py` — drives lexing + parsing and yields a list of `RawStep` objects.
+  collects `%let` macro variables and expands `&name` references, captures `%macro`
+  definitions and inlines `%name(args)` invocations, then splits the program into
+  **steps** (`DATA …; run;`, `PROC …; run/quit;`, `%macro … %mend;` as one atomic step).
+- `sas_parser.py` — drives preprocessing + splitting and yields `RawStep` objects plus
+  the macro-variable and `%macro` symbol tables. SAS is not cleanly context-free, so
+  rather than one grammar we parse statement skeletons with targeted regexes and delegate
+  deep expression parsing to construct-specific transpilers (e.g. sqlglot for PROC SQL).
 
-### 2. IR (`ir/`)
-The IR is a small set of dataclasses (`ir/nodes.py`):
+### 2. IR (`ir/__init__.py`)
+The IR is a small set of dataclasses:
 - `Program` — ordered list of `Step`s + macro/format symbol tables.
 - `Step` — one logical unit (`SqlStep`, `DataStep`, `AggStep`, `FormatStep`,
-  `ReportStep`, `MacroDef`, `RawStep`).
+  `ReportStep`, `StatStep`, `ModelStep`, `MacroDef`, `RawStep`).
 - Each node carries `Provenance` (source span, engine, confidence, notes).
 
 ### 3. Transpilers (`transpilers/`)
 One module per SAS construct. Each takes a `RawStep` and returns IR node(s):
 - `proc_sql.py` — parses the `SELECT`/`CREATE TABLE` with **sqlglot**, re-emits as
   Spark dialect. High confidence, fully deterministic.
-- `data_step.py` — handles assignments, `IF/THEN/ELSE`, `WHERE`, `KEEP/DROP/RENAME`,
-  `BY` groups, `RETAIN`, `FIRST./LAST.`, simple arrays and `LAG()`. Escalates unknown
-  functions to the LLM.
-- `macro.py` — expands `%LET` macro variables, captures `%MACRO` definitions, and maps
-  them to parameterized Python/Jinja.
+- `data_step.py` — handles `SET`, `MERGE` (→ joins), assignments, `IF/THEN/ELSE`,
+  `WHERE`, `KEEP/DROP/RENAME`, `BY` groups, `RETAIN` (→ cumulative window sums),
+  `FIRST./LAST.` (→ `row_number()` window flags), and `LAG()/DIF()` (→ `lag()` windows).
+  Order-sensitive logic uses a synthetic `_row_id`. Unknown functions escalate to the LLM.
+- `macro.py` captures `%MACRO` definitions; `macros.py` (top level) deterministically
+  converts the body to a parameterized Python function (Spark SQL) when it lowers cleanly.
 - `proc_means.py` — `PROC MEANS/SUMMARY/FREQ/TABULATE` → group-by aggregations.
 - `formats.py` — `PROC FORMAT` `VALUE` clauses → mapping tables / `CASE` UDFs.
 - `proc_report.py` — `PROC REPORT/PRINT` → notebook display / SQL projection.
+- `proc_stats.py` — `PROC CORR/UNIVARIATE` → descriptive-stats helpers; `PROC
+  REG/LOGISTIC/GLM/GENMOD` → Spark MLlib estimator scaffolds.
 
 ### 4. LLM Orchestrator (`llm/`)
 - `models.py` — the `Model` enum (`OPUS_4_8`, `CODEX`, `AUTO`) and the routing policy.
@@ -70,13 +74,18 @@ One module per SAS construct. Each takes a `RawStep` and returns IR node(s):
   `CopilotProvider` (delegates to the host Copilot model when run inside VS Code/MCP)
   and a `NullProvider` (emits a `TODO` stub so the deterministic pipeline still runs
   offline).
+- `providers.py` — optional real providers: `AnthropicProvider` (Claude/Opus) and
+  `AzureOpenAIProvider`, plus `provider_from_env()` to auto-select from env vars.
 - `prompts.py` — the conversion / explanation / validation prompt templates.
 
 ### 5. Emitters (`emitters/`)
 - `pyspark_emitter.py` — IR → PySpark DataFrame code in a Databricks notebook layout.
 - `sparksql_emitter.py` — IR → Spark SQL / Databricks SQL.
-- `dlt_emitter.py` — IR → Delta Live Tables (`@dlt.table`) pipeline.
+- `dlt_emitter.py` — IR → Delta Live Tables (`@dlt.table`) with `@dlt.expect` quality
+  rules from `WHERE` filters and optional Unity Catalog targeting.
 - `workflow_emitter.py` — IR → Databricks Workflows job JSON wiring the steps as tasks.
+- `validation_emitter.py` — a SAS-vs-Spark data-parity notebook (row count, schema, and
+  per-column checksum diffs against SAS reference exports).
 
 ## Front-ends share the same core
 

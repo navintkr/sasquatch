@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ..ir import AggStep, DataStep, Program, ReportStep, SqlStep, Step
+from ..ir import AggStep, DataStep, ModelStep, Program, ReportStep, SqlStep, StatStep, Step
 from .base import safe_name
 
 _AGG_SQL = {
@@ -43,7 +43,53 @@ def _emit_step(step: Step) -> str:
         cols = ", ".join(step.columns) if step.columns else "*"
         order = f"\nORDER BY {', '.join(step.group_by)}" if step.group_by else ""
         return f"SELECT {cols} FROM {safe_name(step.source) or 'src'}{order};"
+    if isinstance(step, StatStep):
+        return _stat(step)
+    if isinstance(step, ModelStep):
+        return (
+            f"-- MANUAL REVIEW: PROC {step.estimator} has no Spark SQL equivalent.\n"
+            f"-- Use the PySpark/DLT target for the MLlib {step.estimator} scaffold."
+        )
     return f"-- MANUAL REVIEW: step `{step.name}` (kind={step.kind}) not emitted as SQL"
+
+
+def _stat(step: StatStep) -> str:
+    view = safe_name(step.name)
+    src = safe_name(step.source) or "src"
+    if step.op == "corr":
+        cols = step.columns or []
+        if step.with_columns:
+            pairs = [(a, b) for a in cols for b in step.with_columns]
+        else:
+            pairs = [
+                (cols[i], cols[j])
+                for i in range(len(cols))
+                for j in range(i + 1, len(cols))
+            ]
+        if not pairs:
+            return f"-- PROC CORR for {src}: add VAR columns to compute correlations"
+        selects = [
+            f"SELECT '{a}' AS x, '{b}' AS y, corr({a}, {b}) AS corr FROM {src}"
+            for a, b in pairs
+        ]
+        body = "\nUNION ALL\n".join(selects)
+        return f"CREATE OR REPLACE TEMP VIEW {view} AS\n{body};"
+    # univariate -> summary statistics
+    cols = step.columns or ["*"]
+    measures = []
+    for c in cols:
+        if c == "*":
+            continue
+        measures += [
+            f"count({c}) AS {c}_n",
+            f"avg({c}) AS {c}_mean",
+            f"stddev({c}) AS {c}_std",
+            f"min({c}) AS {c}_min",
+            f"percentile_approx({c}, 0.5) AS {c}_median",
+            f"max({c}) AS {c}_max",
+        ]
+    select = ",\n  ".join(measures) if measures else "count(*) AS n"
+    return f"CREATE OR REPLACE TEMP VIEW {view} AS\nSELECT\n  {select}\nFROM {src};"
 
 
 def _agg(step: AggStep) -> str:
@@ -64,10 +110,21 @@ def _agg(step: AggStep) -> str:
 
 def _data(step: DataStep) -> str:
     view = safe_name(step.name)
-    src = safe_name(step.source) or "src"
-    cols = ["*"]
-    if step.keep:
-        cols = step.keep
+    if step.merge:
+        parts = [safe_name(m) for m in step.merge]
+        if step.by:
+            using = "(" + ", ".join(step.by) + ")"
+            from_clause = parts[0]
+            for other in parts[1:]:
+                from_clause = f"{from_clause} FULL JOIN {other} USING {using}"
+        else:
+            from_clause = " CROSS JOIN ".join(parts)
+        src = f"({from_clause})" if len(parts) > 1 else parts[0]
+    else:
+        src = safe_name(step.source) or "src"
+    if step.needs_row_order:
+        src = f"(SELECT *, monotonically_increasing_id() AS _row_id FROM {src})"
+    cols = step.keep if step.keep else ["*"]
     select = ", ".join(cols)
     for a in step.assignments:
         if a.condition:

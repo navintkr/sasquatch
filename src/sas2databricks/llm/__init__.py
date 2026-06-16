@@ -11,6 +11,7 @@ from .orchestrator import (
     NullProvider,
     Orchestrator,
 )
+from .providers import AnthropicProvider, AzureOpenAIProvider, provider_from_env
 
 __all__ = [
     "Model",
@@ -19,6 +20,9 @@ __all__ = [
     "LLMProvider",
     "NullProvider",
     "CopilotProvider",
+    "AnthropicProvider",
+    "AzureOpenAIProvider",
+    "provider_from_env",
     "LLMResult",
     "ConversionRequest",
 ]

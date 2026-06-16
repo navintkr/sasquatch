@@ -55,6 +55,104 @@ def expand_macro_vars(text: str, variables: dict[str, str]) -> str:
     return cur
 
 
+# ---- macro definition + invocation expansion ------------------------------------------
+
+_MACRO_DEF = re.compile(
+    r"(?is)%macro\s+([A-Za-z_]\w*)\s*(?:\((.*?)\))?\s*;(.*?)%mend(?:\s+[A-Za-z_]\w*)?\s*;"
+)
+
+
+@dataclass
+class MacroSpec:
+    """A captured %MACRO definition (name, ordered params with defaults, body)."""
+
+    name: str
+    params: list[tuple[str, str]]  # (name, default)
+    body: str
+
+
+def extract_macros(text: str) -> dict[str, MacroSpec]:
+    """Collect ``%macro``/``%mend`` definitions keyed by lowercased name."""
+    out: dict[str, MacroSpec] = {}
+    for m in _MACRO_DEF.finditer(text):
+        name = m.group(1)
+        params = _parse_macro_params(m.group(2) or "")
+        out[name.lower()] = MacroSpec(name=name, params=params, body=m.group(3).strip())
+    return out
+
+
+def _parse_macro_params(raw: str) -> list[tuple[str, str]]:
+    params: list[tuple[str, str]] = []
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "=" in part:
+            key, default = part.split("=", 1)
+            params.append((key.strip(), default.strip()))
+        else:
+            params.append((part, ""))
+    return params
+
+
+def _split_call_args(raw: str) -> tuple[list[str], dict[str, str]]:
+    positional: list[str] = []
+    keyword: dict[str, str] = {}
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "=" in part:
+            key, val = part.split("=", 1)
+            keyword[key.strip().lower()] = val.strip()
+        else:
+            positional.append(part)
+    return positional, keyword
+
+
+def expand_macro_calls(text: str, macros: dict[str, MacroSpec], *, depth: int = 0) -> str:
+    """Inline ``%name(args)`` invocations by substituting the macro body.
+
+    Recursion is bounded so mutually recursive macros cannot loop forever. The
+    ``%macro``/``%mend`` definitions themselves are left untouched.
+    """
+    if not macros or depth > 10:
+        return text
+
+    names = "|".join(re.escape(s.name) for s in macros.values())
+    call_re = re.compile(rf"(?is)%({names})\b\s*(?:\((.*?)\))?\s*;")
+
+    def _inline(m: re.Match) -> str:
+        # don't expand the definition header itself
+        if re.match(r"(?is)%macro\b", m.group(0)):
+            return m.group(0)
+        spec = macros[m.group(1).lower()]
+        positional, keyword = _split_call_args(m.group(2) or "")
+        values: dict[str, str] = {}
+        for i, (pname, default) in enumerate(spec.params):
+            if pname.lower() in keyword:
+                values[pname] = keyword[pname.lower()]
+            elif i < len(positional):
+                values[pname] = positional[i]
+            else:
+                values[pname] = default
+        return expand_macro_vars(spec.body, values)
+
+    # avoid matching inside %macro ... %mend definitions
+    spans = [(d.start(), d.end()) for d in _MACRO_DEF.finditer(text)]
+
+    def _guarded(m: re.Match) -> str:
+        pos = m.start()
+        if any(s <= pos < e for s, e in spans):
+            return m.group(0)
+        return _inline(m)
+
+    expanded = call_re.sub(_guarded, text)
+    if expanded != text:
+        return expand_macro_calls(expanded, macros, depth=depth + 1)
+    return expanded
+
+
 # ---- step splitting -------------------------------------------------------------------
 
 
@@ -71,7 +169,7 @@ class RawStep:
 
 
 _STEP_START = re.compile(
-    r"(?im)^\s*(data\b|proc\s+\w+|%macro\b)",
+    r"(?im)^[ \t]*(data\b|proc\s+\w+|%macro\b)",
 )
 _BOUNDARY = re.compile(r"(?im)\b(run|quit|%mend)\s*;")
 
@@ -94,40 +192,79 @@ def _classify(header: str) -> tuple[str, str]:
             "format": "proc_format",
             "report": "proc_report",
             "print": "proc_report",
+            "corr": "proc_stat",
+            "univariate": "proc_stat",
+            "reg": "proc_model",
+            "logistic": "proc_model",
+            "glm": "proc_model",
+            "genmod": "proc_model",
         }
         return mapping.get(proc, "proc"), proc
     return "unknown", ""
 
 
 def split_steps(text: str) -> list[RawStep]:
-    """Split preprocessed SAS text into a list of :class:`RawStep`."""
-    steps: list[RawStep] = []
-    starts = [m.start() for m in _STEP_START.finditer(text)]
-    starts.append(len(text))
+    """Split preprocessed SAS text into a list of :class:`RawStep`.
+
+    ``%macro``/``%mend`` definitions are treated as a single atomic step so the inner
+    ``run;``/``quit;`` boundaries don't split the body apart.
+    """
     line_index = _line_starts(text)
+    macro_spans = [(m.start(), m.end(), m.group(0)) for m in _MACRO_DEF.finditer(text)]
+
+    # blank out macro bodies (preserving length/newlines) before generic splitting
+    masked = list(text)
+    for s, e, _ in macro_spans:
+        for i in range(s, e):
+            if masked[i] != "\n":
+                masked[i] = " "
+    masked_text = "".join(masked)
+
+    collected: list[tuple[int, RawStep]] = []
+    for s, _e, body in macro_spans:
+        start_line = _line_of(line_index, s)
+        collected.append(
+            (
+                s,
+                RawStep(
+                    text=body.strip(),
+                    kind="macro",
+                    start_line=start_line,
+                    end_line=start_line + body.count("\n"),
+                ),
+            )
+        )
+
+    starts = [m.start() for m in _STEP_START.finditer(masked_text)]
+    starts.append(len(masked_text))
 
     for i in range(len(starts) - 1):
-        chunk = text[starts[i] : starts[i + 1]]
-        # trim the chunk at its closing boundary (run; / quit; / %mend;) if present
+        chunk = masked_text[starts[i] : starts[i + 1]]
         boundary = _BOUNDARY.search(chunk)
         if boundary:
             chunk = chunk[: boundary.end()]
-        chunk = chunk.strip()
-        if not chunk:
+        if not chunk.strip():
             continue
-        header = chunk.splitlines()[0]
+        # use original text for the chunk content (mask only guided splitting)
+        original = text[starts[i] : starts[i] + len(chunk)]
+        header = original.strip().splitlines()[0]
         kind, proc = _classify(header)
         start_line = _line_of(line_index, starts[i])
-        steps.append(
-            RawStep(
-                text=chunk,
-                kind=kind,
-                proc=proc,
-                start_line=start_line,
-                end_line=start_line + chunk.count("\n"),
+        collected.append(
+            (
+                starts[i],
+                RawStep(
+                    text=original.strip(),
+                    kind=kind,
+                    proc=proc,
+                    start_line=start_line,
+                    end_line=start_line + original.count("\n"),
+                ),
             )
         )
-    return steps
+
+    collected.sort(key=lambda t: t[0])
+    return [step for _, step in collected]
 
 
 def _line_starts(text: str) -> list[int]:
