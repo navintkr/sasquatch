@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- `py.typed` marker so downstream projects pick up the package's type hints (PEP 561).
+- Automated PyPI publishing workflow (`.github/workflows/publish.yml`) using GitHub
+  Trusted Publishing (OIDC): builds + `twine check` on every run, publishes to PyPI on a
+  GitHub release, and supports a manual TestPyPI dry run via `workflow_dispatch`.
+
 ## [0.3.0] — End-to-end deployment & roadmap features
 
 ### Added
