@@ -65,6 +65,6 @@ All notable changes to this project are documented here. The format is based on
   PROC SQL, PROC MEANS/SUMMARY, PROC FORMAT, macro variables, and the core DATA step.
 - PySpark, Spark SQL, DLT, and Workflows emitters; LLM orchestrator with model routing.
 
-[0.3.0]: https://github.com/navintkr/sasquatch/releases/tag/v0.3.0
-[0.2.0]: https://github.com/navintkr/sasquatch/releases/tag/v0.2.0
-[0.1.0]: https://github.com/navintkr/sasquatch/releases/tag/v0.1.0
+[0.3.0]: https://github.com/navintkr/sas2databricks/releases/tag/v0.3.0
+[0.2.0]: https://github.com/navintkr/sas2databricks/releases/tag/v0.2.0
+[0.1.0]: https://github.com/navintkr/sas2databricks/releases/tag/v0.1.0

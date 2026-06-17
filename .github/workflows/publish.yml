@@ -4,7 +4,7 @@ name: Publish
 # A manual run can target TestPyPI first for a dry run. Uploads use PyPI Trusted
 # Publishing (OIDC) -- there are no API tokens stored in the repo. Configure the
 # trusted publisher on (Test)PyPI before the first run:
-#   Publisher: GitHub | Owner: navintkr | Repo: sasquatch
+#   Publisher: GitHub | Owner: navintkr | Repo: sas2databricks
 #   Workflow: publish.yml | Environment: pypi  (and testpypi for the dry run)
 
 on:
