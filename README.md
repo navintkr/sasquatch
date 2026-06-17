@@ -82,22 +82,33 @@ flowchart LR
 ## Quick start
 
 ```bash
-# Install from PyPI
+# Install from PyPI (Python 3.10+)
 pip install sas2databricks
-#   ...or include the MCP server extra:
+#   ...with the MCP server extra (Copilot / VS Code integration):
 pip install "sas2databricks[mcp]"
+#   ...already have it? grab the latest one-command UX:
+pip install --upgrade sas2databricks
 
-# Convert a single SAS program to PySpark
+s2db --version        # -> s2db, version 0.4.0
+
+# Convert a single SAS program to PySpark (prints to stdout)
 s2db convert examples/sample1_proc_sql.sas --target pyspark
 
-# Migrate a whole SAS project - ONE command emits PySpark + Spark SQL + DLT side by side,
-# with a combined report index linking each format. No flags needed.
+# Migrate a whole SAS project - ONE command, no flags. Emits PySpark + Spark SQL + DLT
+# side by side under out/<target>/, plus a combined report index linking each format:
 s2db migrate ./examples --out ./out
-#   narrow to one format:   s2db migrate ./examples --target pyspark
-#   pick the model for gaps: s2db migrate ./examples --model opus-4.8
+#
+#   out/
+#   ├── pyspark/    <stem>_notebook.py      + index.md
+#   ├── sparksql/   <stem>_queries.sql      + index.md
+#   ├── dlt/        <stem>_dlt_pipeline.py  + index.md
+#   └── index.md    <- combined index (open this first)
+#
+#   narrow to one format:       s2db migrate ./examples --target pyspark
+#   choose the model for gaps:  s2db migrate ./examples --model opus-4.8
+#   delegate gaps to Copilot:   s2db migrate ./examples --copilot
 
-# Assemble deployable Databricks Asset Bundles (databricks.yml + src/ notebooks + reports/)
-# With --target all you get one ready-to-deploy bundle per format under out/<target>/.
+# Assemble deployable Databricks Asset Bundles (one per format under out/<target>/)
 s2db migrate ./examples --bundle --html --out ./bundle
 #   then:  cd bundle/pyspark && databricks bundle deploy -t dev
 
