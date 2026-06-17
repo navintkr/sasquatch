@@ -72,7 +72,8 @@ flowchart LR
     AGENT["VS Code Copilot agent + skill"] --> MCP
 ```
 
-1. **CLI** - `s2db migrate ./sas_project --target pyspark --out ./databricks` for batch jobs.
+1. **CLI** - `s2db migrate ./sas_project` migrates everything in one command (PySpark +
+   Spark SQL + DLT). Narrow with `--target pyspark` or add `--bundle` for batch jobs.
 2. **MCP server** - exposes `parse_sas`, `convert_sas`, `validate_conversion`,
    `explain_conversion`, `migrate_project` as tools to any MCP client (incl. GitHub Copilot).
 3. **VS Code Copilot agent + skill** - the `@sas-migrator` agent orchestrates the migration
@@ -89,12 +90,16 @@ pip install "sas2databricks[mcp]"
 # Convert a single SAS program to PySpark
 s2db convert examples/sample1_proc_sql.sas --target pyspark
 
-# Migrate an entire SAS project, choosing the LLM model for the gaps
-s2db migrate ./examples --target dlt --model opus-4.8 --out ./out
+# Migrate a whole SAS project - ONE command emits PySpark + Spark SQL + DLT side by side,
+# with a combined report index linking each format. No flags needed.
+s2db migrate ./examples --out ./out
+#   narrow to one format:   s2db migrate ./examples --target pyspark
+#   pick the model for gaps: s2db migrate ./examples --model opus-4.8
 
-# Assemble a deployable Databricks Asset Bundle (databricks.yml + src/ notebooks + reports/)
-s2db migrate ./examples --target pyspark --bundle --html --out ./bundle
-#   then:  cd bundle && databricks bundle deploy -t dev
+# Assemble deployable Databricks Asset Bundles (databricks.yml + src/ notebooks + reports/)
+# With --target all you get one ready-to-deploy bundle per format under out/<target>/.
+s2db migrate ./examples --bundle --html --out ./bundle
+#   then:  cd bundle/pyspark && databricks bundle deploy -t dev
 
 # Run the MCP server (stdio) so Copilot can call the tools
 s2db mcp

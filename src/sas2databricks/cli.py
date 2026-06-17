@@ -12,8 +12,8 @@ from rich.table import Table
 from . import __version__
 from .llm import CopilotProvider, Model, NullProvider, provider_from_env
 from .pipeline import MigrationResult, migrate_file
+from .project import ALL_TARGETS, migrate_all_targets, migrate_project
 from .project import BUNDLE_NOTEBOOK_TARGETS as _BUNDLE_NOTEBOOK_TARGETS
-from .project import migrate_project
 
 
 def _force_utf8() -> None:
@@ -31,6 +31,10 @@ console = Console()
 _MODEL_CHOICE = click.Choice([m.value for m in Model], case_sensitive=False)
 _TARGET_CHOICE = click.Choice(
     ["pyspark", "sparksql", "dlt", "workflow", "validate", "bundle"], case_sensitive=False
+)
+# `migrate` adds "all" (the default): emit PySpark + Spark SQL + DLT in one command.
+_TARGET_CHOICE_MIGRATE = click.Choice(
+    ["all", "pyspark", "sparksql", "dlt", "workflow", "validate", "bundle"], case_sensitive=False
 )
 
 
@@ -79,7 +83,8 @@ def convert(
 
 @main.command(help="Migrate a whole SAS project (directory of .sas files).")
 @click.argument("source", type=click.Path(exists=True, path_type=Path))
-@click.option("--target", "-t", type=_TARGET_CHOICE, default="pyspark", show_default=True)
+@click.option("--target", "-t", type=_TARGET_CHOICE_MIGRATE, default="all", show_default=True,
+              help="Databricks target. 'all' (default) emits PySpark + Spark SQL + DLT in one run.")
 @click.option("--model", "-m", type=_MODEL_CHOICE, default="opus-4.8", show_default=True)
 @click.option("--out", "-o", type=click.Path(path_type=Path), default=Path("out"),
               show_default=True)
@@ -102,6 +107,36 @@ def migrate_cmd(
         console.print("[red]No .sas files found.[/]")
         raise SystemExit(1)
 
+    def _print(f: Path, result: MigrationResult, dest: str) -> None:
+        console.print(f"[green]OK[/] {f.name} -> {dest}  "
+                      f"({result.review_count} step(s) need review)")
+
+    options = _emit_options(catalog, schema, ref_base)
+    provider = _resolve_provider(copilot)
+
+    if target == "all":
+        def _header(tgt: str) -> None:
+            console.print(f"\n[bold cyan]== {tgt} ==[/]")
+
+        multi = migrate_all_targets(
+            files, out, targets=ALL_TARGETS, model=model, provider=provider,
+            threshold=threshold, html=html, bundle=bundle, on_file=_print, on_target=_header,
+            **options,
+        )
+        console.print(
+            f"\n[bold]Migrated {multi.file_count} file(s) to {len(multi.targets)} targets[/] "
+            f"({', '.join(multi.targets)}) -> {out}/  "
+            f"| {multi.review_count} step(s) flagged for review"
+        )
+        console.print(f"Combined index: [cyan]{out / 'index.md'}[/]")
+        if bundle:
+            console.print("[bold]Bundles ready.[/] Each target folder has a databricks.yml -> "
+                          f"[cyan]cd {out}/<target> && databricks bundle deploy -t dev[/]")
+        else:
+            console.print("Tip: narrow to one format with [cyan]-t pyspark[/], or add "
+                          "[cyan]--bundle[/] for deployable bundles.")
+        return
+
     if bundle and target not in _BUNDLE_NOTEBOOK_TARGETS:
         console.print(
             f"[red]--bundle needs a notebook target[/] "
@@ -109,13 +144,8 @@ def migrate_cmd(
         )
         raise SystemExit(1)
 
-    def _print(f: Path, result: MigrationResult, dest: str) -> None:
-        console.print(f"[green]OK[/] {f.name} -> {dest}  "
-                      f"({result.review_count} step(s) need review)")
-
-    options = _emit_options(catalog, schema, ref_base)
     project = migrate_project(
-        files, out, target=target, model=model, provider=_resolve_provider(copilot),
+        files, out, target=target, model=model, provider=provider,
         threshold=threshold, html=html, bundle=bundle, on_file=_print, **options,
     )
 

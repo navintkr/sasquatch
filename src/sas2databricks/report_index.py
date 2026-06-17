@@ -139,3 +139,96 @@ def write_index(
         html_path.write_text(build_index_html(entries, target=target), encoding="utf-8")
         written.append(html_path)
     return written
+
+
+@dataclass
+class TargetSummary:
+    """One target's roll-up for the combined ``--target all`` index."""
+
+    target: str
+    files: int
+    steps: int
+    review: int
+    escalations: int
+    index_base: str  # relative path to that target's index, without extension
+
+
+def build_multi_index_markdown(summaries: list[TargetSummary]) -> str:
+    """Top-level index linking each target's per-target index (``--target all``)."""
+    files = summaries[0].files if summaries else 0
+    review = summaries[0].review if summaries else 0
+    targets = ", ".join(s.target for s in summaries)
+    lines = [
+        "# SAS to Databricks - project migration (all targets)",
+        "",
+        f"- Files migrated: **{files}**",
+        f"- Targets: **{targets}**",
+        f"- Steps needing review: **{review}** (per file; identical across targets)",
+        "",
+        "| Target | Files | Steps | Needs review | Open |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+    for s in summaries:
+        flag = f"⚠️ {s.review}" if s.review else "0"
+        lines.append(
+            f"| `{s.target}` | {s.files} | {s.steps} | {flag} | [index]({s.index_base}.md) |"
+        )
+    return "\n".join(lines) + "\n"
+
+
+def build_multi_index_html(summaries: list[TargetSummary]) -> str:
+    """Self-contained HTML twin of :func:`build_multi_index_markdown`."""
+    files = summaries[0].files if summaries else 0
+    review = summaries[0].review if summaries else 0
+    targets = html.escape(", ".join(s.target for s in summaries))
+    rows = []
+    for s in summaries:
+        cls = "review" if s.review else "ok"
+        rows.append(
+            f'<tr class="{cls}"><td><a href="{html.escape(s.index_base)}.html">'
+            f"<code>{html.escape(s.target)}</code></a></td>"
+            f"<td>{s.files}</td><td>{s.steps}</td><td>{s.review}</td>"
+            f"<td>{s.escalations}</td></tr>"
+        )
+    body = "\n".join(rows)
+    return f"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>SAS to Databricks - all targets</title>
+<style>
+ body {{ font-family: system-ui, sans-serif; margin: 2rem; }}
+ table {{ border-collapse: collapse; width: 100%; }}
+ th, td {{ border: 1px solid #ccc; padding: 6px 10px; text-align: left; }}
+ th {{ background: #f3f3f3; }}
+ tr.review {{ background: #fff7e6; }}
+</style></head><body>
+<h1>SAS to Databricks - project migration (all targets)</h1>
+<p>Files migrated: <strong>{files}</strong> &middot; Targets: <strong>{targets}</strong>
+ &middot; Steps needing review: <strong>{review}</strong> (per file; identical across targets)</p>
+<table>
+<thead><tr>
+<th>Target</th><th>Files</th><th>Steps</th><th>Needs review</th><th>Escalations</th>
+</tr></thead>
+<tbody>
+{body}
+</tbody></table>
+</body></html>
+"""
+
+
+def write_multi_index(
+    summaries: list[TargetSummary],
+    out_dir: Path,
+    *,
+    html_report: bool,
+    stem: str = "index",
+) -> list[Path]:
+    """Write the combined ``--target all`` index into ``out_dir``."""
+    written: list[Path] = []
+    md_path = out_dir / f"{stem}.md"
+    md_path.write_text(build_multi_index_markdown(summaries), encoding="utf-8")
+    written.append(md_path)
+    if html_report:
+        html_path = out_dir / f"{stem}.html"
+        html_path.write_text(build_multi_index_html(summaries), encoding="utf-8")
+        written.append(html_path)
+    return written

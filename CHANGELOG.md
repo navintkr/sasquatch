@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- One-command migration: `s2db migrate` now accepts `--target all` and **defaults to it**,
+  emitting PySpark + Spark SQL + DLT in a single run under `out/<target>/`, with a combined
+  top-level `index.md` (and `index.html` with `--html`) linking each per-target report.
+  `--bundle` produces a deployable Databricks Asset Bundle per target. Public helper
+  `migrate_all_targets()` and `ALL_TARGETS` added to `project.py`.
+
+### Changed
+- `s2db migrate <project>` with no `--target` now produces all three notebook formats
+  instead of PySpark only. Pass `--target pyspark` (or `sparksql`/`dlt`) to keep a single
+  format. `s2db convert` (single file) is unchanged.
+
 ## [0.3.1] - Packaging & publishing
 
 ### Added

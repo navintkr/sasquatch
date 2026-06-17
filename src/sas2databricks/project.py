@@ -14,10 +14,13 @@ from pathlib import Path
 from .emitters.bundle_emitter import project_bundle
 from .llm.orchestrator import LLMProvider
 from .pipeline import MigrationResult, migrate_file
-from .report_index import IndexEntry, write_index
+from .report_index import IndexEntry, TargetSummary, write_index, write_multi_index
 
 # Targets whose output is a runnable notebook (valid inside a deployable --bundle layout).
 BUNDLE_NOTEBOOK_TARGETS = frozenset({"pyspark", "sparksql", "dlt", "validate"})
+
+# Code-generation targets emitted together by ``--target all`` (the one-command happy path).
+ALL_TARGETS: tuple[str, ...] = ("pyspark", "sparksql", "dlt")
 
 OnFile = Callable[[Path, MigrationResult, str], None]
 
@@ -99,6 +102,72 @@ def migrate_project(
         return _bundle_layout(files, out, target, model, provider, threshold, html, on_file,
                               options)
     return _flat_layout(files, out, target, model, provider, threshold, html, on_file, options)
+
+
+@dataclass
+class MultiProjectResult:
+    """Outcome of a ``--target all`` migration (one :class:`ProjectResult` per target)."""
+
+    out: Path
+    targets: list[str]
+    bundle: bool
+    results: list[ProjectResult] = field(default_factory=list)
+
+    @property
+    def file_count(self) -> int:
+        return self.results[0].file_count if self.results else 0
+
+    @property
+    def review_count(self) -> int:
+        # Review flags come from transpile confidence, which is target-independent, so any
+        # target's count is representative of the whole run.
+        return self.results[0].review_count if self.results else 0
+
+
+def migrate_all_targets(
+    files: list[Path],
+    out: str | Path,
+    *,
+    targets: tuple[str, ...] = ALL_TARGETS,
+    model: str = "opus-4.8",
+    provider: LLMProvider | None = None,
+    threshold: float = 0.8,
+    html: bool = False,
+    bundle: bool = False,
+    on_file: OnFile | None = None,
+    on_target: Callable[[str], None] | None = None,
+    **options: str,
+) -> MultiProjectResult:
+    """Migrate ``files`` to every target in ``targets``.
+
+    Each target is written under ``out/<target>/`` (flat, or a deployable bundle when
+    ``bundle=True``) and a combined ``out/index.md`` (plus ``index.html`` when ``html``)
+    links each per-target index. This is the one-command happy path behind ``s2db migrate``.
+    """
+    out = Path(out)
+    results: list[ProjectResult] = []
+    for tgt in targets:
+        if on_target is not None:
+            on_target(tgt)
+        results.append(
+            migrate_project(
+                files, out / tgt, target=tgt, model=model, provider=provider,
+                threshold=threshold, html=html, bundle=bundle, on_file=on_file, **options,
+            )
+        )
+    summaries = [
+        TargetSummary(
+            target=r.target,
+            files=r.file_count,
+            steps=sum(len(e.result.reports) for e in r.entries),
+            review=r.review_count,
+            escalations=sum(len(e.result.llm_requests) for e in r.entries),
+            index_base=f"{r.out.name}/reports/index" if r.bundle else f"{r.out.name}/index",
+        )
+        for r in results
+    ]
+    write_multi_index(summaries, out, html_report=html)
+    return MultiProjectResult(out=out, targets=list(targets), bundle=bundle, results=results)
 
 
 def _flat_layout(

@@ -180,9 +180,55 @@ def test_migrate_flat_writes_project_index(tmp_path):
     (project / "a.sas").write_text("data out; set s; x = a + b; run;")
     out = tmp_path / "flat_out"
     runner = CliRunner()
-    res = runner.invoke(main, ["migrate", str(project), "--out", str(out)])
+    res = runner.invoke(main, ["migrate", str(project), "-t", "pyspark", "--out", str(out)])
     assert res.exit_code == 0, res.output
     assert (out / "index.md").exists()
+
+
+# ---- one-command happy path: --target all ---------------------------------------------
+
+
+def test_migrate_defaults_to_all_targets(tmp_path):
+    """`s2db migrate <proj>` with no -t emits PySpark + Spark SQL + DLT plus a combined index."""
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / "a.sas").write_text("proc sql; create table t as select * from s; quit;")
+    out = tmp_path / "out_all"
+    runner = CliRunner()
+    res = runner.invoke(main, ["migrate", str(project), "--out", str(out)])
+    assert res.exit_code == 0, res.output
+
+    assert (out / "pyspark" / "a_notebook.py").exists()
+    assert (out / "sparksql" / "a_queries.sql").exists()
+    assert (out / "dlt" / "a_dlt_pipeline.py").exists()
+    assert (out / "pyspark" / "index.md").exists()
+
+    combined = (out / "index.md").read_text(encoding="utf-8")
+    assert "all targets" in combined.lower()
+    for tgt in ("pyspark", "sparksql", "dlt"):
+        assert tgt in combined
+        assert f"{tgt}/index.md" in combined
+
+
+def test_migrate_all_with_bundle_and_html_per_target(tmp_path):
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / "a.sas").write_text("data out; set s; x = a + b; run;")
+    out = tmp_path / "out_all_bundle"
+    runner = CliRunner()
+    res = runner.invoke(
+        main, ["migrate", str(project), "-t", "all", "--bundle", "--html", "--out", str(out)]
+    )
+    assert res.exit_code == 0, res.output
+
+    for tgt in ("pyspark", "sparksql", "dlt"):
+        assert (out / tgt / "databricks.yml").exists()
+        assert (out / tgt / "reports" / "index.md").exists()
+    # combined index (both formats) links the per-target bundle report indexes
+    assert (out / "index.md").exists()
+    assert (out / "index.html").exists()
+    combined = (out / "index.md").read_text(encoding="utf-8")
+    assert "pyspark/reports/index.md" in combined
 
 
 def test_same_stem_files_do_not_overwrite(tmp_path):
