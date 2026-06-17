@@ -6,10 +6,11 @@
 transformations, and reports into Databricks (PySpark, Spark SQL, Delta Live Tables,
 and Workflows) - end to end.**
 
-> Deterministic transpilers handle the patterns we understand. A GitHub Copilot–powered
+> Deterministic transpilers handle the patterns we understand. A GitHub Copilot-powered
 > LLM layer (default **Claude Opus 4.8**, or **Codex**, or **Auto**) fills the gaps,
 > resolves ambiguity, and explains every conversion.
 
+[![PyPI](https://img.shields.io/pypi/v/sas2databricks.svg)](https://pypi.org/project/sas2databricks/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
 [![status: beta](https://img.shields.io/badge/status-beta-brightgreen.svg)](ROADMAP.md)
@@ -80,8 +81,10 @@ flowchart LR
 ## Quick start
 
 ```bash
-# Install (editable, with dev + mcp extras)
-pip install -e ".[dev,mcp]"
+# Install from PyPI
+pip install sas2databricks
+#   ...or include the MCP server extra:
+pip install "sas2databricks[mcp]"
 
 # Convert a single SAS program to PySpark
 s2db convert examples/sample1_proc_sql.sas --target pyspark
@@ -96,6 +99,9 @@ s2db migrate ./examples --target pyspark --bundle --html --out ./bundle
 # Run the MCP server (stdio) so Copilot can call the tools
 s2db mcp
 ```
+
+> **From source (for development):** `git clone https://github.com/navintkr/sas2databricks`
+> then `pip install -e ".[dev,mcp]"`. The `examples/` SAS samples used above live in the repo.
 
 ## Model selection
 
