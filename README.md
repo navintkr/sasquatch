@@ -1,10 +1,10 @@
-# Sasquatch 🦶
+# sas2databricks 🦶
 
-### `sas2databricks` — track down your SAS and set it free in the Databricks lakehouse.
+### `sas2databricks` - track down your SAS and set it free in the Databricks lakehouse.
 
 **An open-source, LLM-assisted migration toolkit that converts SAS analytics, data
 transformations, and reports into Databricks (PySpark, Spark SQL, Delta Live Tables,
-and Workflows) — end to end.**
+and Workflows) - end to end.**
 
 > Deterministic transpilers handle the patterns we understand. A GitHub Copilot–powered
 > LLM layer (default **Claude Opus 4.8**, or **Codex**, or **Auto**) fills the gaps,
@@ -18,13 +18,13 @@ and Workflows) — end to end.**
 
 ## Why this exists
 
-Migrating SAS to Databricks is hard because SAS is not one language — it is a family of
+Migrating SAS to Databricks is hard because SAS is not one language - it is a family of
 sub-languages (DATA step, PROC SQL, the macro facility, dozens of PROCs, formats/informats).
 Pure rules-based converters break on real-world code; pure LLM converters hallucinate and
 are unverifiable. **sas2databricks combines both**:
 
 1. A **deterministic core** parses SAS into an intermediate representation (IR) and
-   transpiles every pattern it recognizes — fast, free, and 100% reproducible.
+   transpiles every pattern it recognizes - fast, free, and 100% reproducible.
 2. An **LLM orchestrator** is invoked only for the residue (unknown PROCs, gnarly macros,
    business logic) with the model you choose, and its output is validated against the IR.
 3. Every line of generated code carries **provenance** (which SAS line it came from and
@@ -71,10 +71,10 @@ flowchart LR
     AGENT["VS Code Copilot agent + skill"] --> MCP
 ```
 
-1. **CLI** — `s2db migrate ./sas_project --target pyspark --out ./databricks` for batch jobs.
-2. **MCP server** — exposes `parse_sas`, `convert_sas`, `validate_conversion`,
+1. **CLI** - `s2db migrate ./sas_project --target pyspark --out ./databricks` for batch jobs.
+2. **MCP server** - exposes `parse_sas`, `convert_sas`, `validate_conversion`,
    `explain_conversion`, `migrate_project` as tools to any MCP client (incl. GitHub Copilot).
-3. **VS Code Copilot agent + skill** — the `@sas-migrator` agent orchestrates the migration
+3. **VS Code Copilot agent + skill** - the `@sas-migrator` agent orchestrates the migration
    interactively and lets you pick the model (Opus 4.8 default / Codex / Auto).
 
 ## Quick start
@@ -132,7 +132,7 @@ for what's planned.
 
 ## Status
 
-**v0.3.0 — real and growing.** Deterministic transpilers (with tests) cover PROC SQL,
+**v0.3.0 - real and growing.** Deterministic transpilers (with tests) cover PROC SQL,
 macro variables, **`%MACRO` definitions/invocations with `%IF`/`%DO`/`%ELSE` control flow
 and iterative `%DO` loops**, PROC MEANS/FORMAT/REPORT, the DATA step (BY-group, `RETAIN`,
 `LAG`/`DIF`, `FIRST.`/`LAST.`, `MERGE`, **arrays + iterative `DO` loops**), descriptive
@@ -141,7 +141,7 @@ PySpark, Spark SQL, DLT (with expectations), Workflows, a data-parity `validate`
 and a **Databricks Asset Bundle** (`databricks.yml`). `s2db migrate --bundle` assembles a
 deployable bundle (notebooks + `databricks.yml` + a roll-up **project report index**). Real
 LLM providers (Anthropic, Azure OpenAI) plug in behind `LLMProvider`, results render to an
-HTML report, and CI runs ruff + mypy + pytest on Python 3.10–3.12. Contributions welcome —
+HTML report, and CI runs ruff + mypy + pytest on Python 3.10–3.12. Contributions welcome -
 see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License

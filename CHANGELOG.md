@@ -4,13 +4,17 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.1] - Packaging & publishing
 
 ### Added
 - `py.typed` marker so downstream projects pick up the package's type hints (PEP 561).
 - Automated PyPI publishing workflow (`.github/workflows/publish.yml`) using GitHub
   Trusted Publishing (OIDC): builds + `twine check` on every run, publishes to PyPI on a
   GitHub release, and supports a manual TestPyPI dry run via `workflow_dispatch`.
+
+### Changed
+- Rebranded the project and repository to **sas2databricks**; all in-repo URLs updated.
+  Replaced em dashes with hyphens in the README.
 
 ## [0.3.0] — End-to-end deployment & roadmap features
 
@@ -65,6 +69,7 @@ All notable changes to this project are documented here. The format is based on
   PROC SQL, PROC MEANS/SUMMARY, PROC FORMAT, macro variables, and the core DATA step.
 - PySpark, Spark SQL, DLT, and Workflows emitters; LLM orchestrator with model routing.
 
-[0.3.0]: https://github.com/navintkr/sasquatch/releases/tag/v0.3.0
-[0.2.0]: https://github.com/navintkr/sasquatch/releases/tag/v0.2.0
-[0.1.0]: https://github.com/navintkr/sasquatch/releases/tag/v0.1.0
+[0.3.1]: https://github.com/navintkr/sas2databricks/releases/tag/v0.3.1
+[0.3.0]: https://github.com/navintkr/sas2databricks/releases/tag/v0.3.0
+[0.2.0]: https://github.com/navintkr/sas2databricks/releases/tag/v0.2.0
+[0.1.0]: https://github.com/navintkr/sas2databricks/releases/tag/v0.1.0

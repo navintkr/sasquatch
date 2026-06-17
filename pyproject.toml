@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sas2databricks"
-version = "0.3.0"
+version = "0.3.1"
 description = "LLM-assisted migration of SAS analytics, transformations, and reports to Databricks (PySpark, Spark SQL, DLT, Workflows)."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -44,8 +44,8 @@ dev = [
 s2db = "sas2databricks.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/navintkr/sasquatch"
-Issues = "https://github.com/navintkr/sasquatch/issues"
+Homepage = "https://github.com/navintkr/sas2databricks"
+Issues = "https://github.com/navintkr/sas2databricks/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sas2databricks"]
