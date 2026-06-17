@@ -49,7 +49,13 @@ are unverifiable. **sas2databricks combines both**:
 
 ```mermaid
 flowchart LR
-    SAS["SAS code (.sas)"] --> CORE
+    SAS["SAS project (*.sas)"] --> PROJ
+
+    subgraph PROJ["Project orchestration (project.py)"]
+        PLAN["Plan files →<br/>flat or --bundle layout"]
+    end
+
+    PLAN -->|per .sas file| CORE
     subgraph CORE["sas2databricks core (Python)"]
         P[Parser] --> IR[(IR)]
         IR --> T[Transpilers]
@@ -58,9 +64,10 @@ flowchart LR
         T --> E[Emitters]
     end
     E --> OUT["PySpark / Spark SQL / DLT / Workflows / Validate / Bundle"]
+    OUT --> ASM["databricks.yml + src/ notebooks<br/>+ project report index (report_index.py)"]
 
-    CLI["CLI: s2db migrate"] --> CORE
-    MCP["MCP server (tools for Copilot)"] --> CORE
+    CLI["CLI: s2db migrate"] --> PROJ
+    MCP["MCP server (tools for Copilot)"] --> PROJ
     AGENT["VS Code Copilot agent + skill"] --> MCP
 ```
 

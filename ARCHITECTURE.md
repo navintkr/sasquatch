@@ -21,6 +21,7 @@ representation (IR), and how the three front-ends (CLI, MCP, Copilot agent) shar
 
 ```mermaid
 flowchart TD
+    PROJ["Project orchestration (project.py)<br/>plan files → flat or --bundle layout"] -->|per .sas file| A
     A[".sas source"] --> B[Lexer / Preprocessor<br/>strip comments, expand %let, inline %macro calls]
     B --> C[Step splitter<br/>regex skeletons, %macro atomic]
     C --> D[IR Builder<br/>transpilers per construct]
@@ -30,6 +31,7 @@ flowchart TD
     F --> G
     G --> H[Emitter<br/>pyspark / sparksql / dlt / workflow / validate / bundle]
     H --> I[Output + provenance + migration report]
+    I --> J["Project roll-up<br/>databricks.yml + report index (index.md / index.html)"]
 ```
 
 ## Stages
